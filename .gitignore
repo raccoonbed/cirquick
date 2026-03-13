@@ -1,0 +1,9 @@
+# Compiled binary
+main
+main.dSYM/
+
+# Rust build output
+tui/target/
+
+# Editor config
+.zed/
