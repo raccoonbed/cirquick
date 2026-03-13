@@ -10,6 +10,8 @@ pub struct Complex {
 }
 
 extern "C" {
+    pub fn solve_ckt(mode: std::ffi::c_int, x: Complex, z: Complex) -> MaxAveragePower;
+
     pub fn from_rect(real: c_double, imag: c_double) -> Complex;
     pub fn from_polar(mag: c_double, phase_deg: c_double) -> Complex;
 
@@ -47,6 +49,27 @@ pub struct PowerTriangle {
     pub theta: f64,
     pub pf:    f64,
 }
+
+// ---------------------------------------------------------------------------
+// Max Average Power Transfer
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+#[allow(non_snake_case)]
+pub struct MaxAveragePower {
+    pub Vth:  Complex,
+    pub In:   Complex,
+    pub Zth:  Complex,
+    pub Zl:   Complex,
+    pub pmax: c_double,
+}
+
+pub type MapMode = std::ffi::c_int;
+pub const MAP_V:    MapMode = 0;
+pub const MAP_I:    MapMode = 1;
+pub const MAP_VRMS: MapMode = 2;
+pub const MAP_IRMS: MapMode = 3;
 
 pub type TriangleInput = std::ffi::c_int;
 pub const PT_P_Q:     TriangleInput = 0;

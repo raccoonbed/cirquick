@@ -49,6 +49,7 @@ pub enum FormResult {
     Text(fn(&[String]) -> String),
     Triangle(fn(&[String]) -> ffi::Complex),
     Solver,
+    MapSolver,
 }
 
 pub struct Form {
@@ -343,6 +344,13 @@ pub fn all_forms() -> Vec<Form> {
             title: "Power Triangle Solver",
             steps: vec![],
             result: FormResult::Solver,
+        },
+
+        // 18 ─ Max Average Power Transfer
+        Form {
+            title: "Max Average Power Transfer",
+            steps: vec![],
+            result: FormResult::MapSolver,
         },
     ]
 }

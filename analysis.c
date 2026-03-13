@@ -2,6 +2,40 @@
 #include "circuit.h"
 #include <math.h>
 
+//----------------Max Avg Power----------------
+MaxAveragePower solve_ckt(MaxAveragePowerInput mode, Complex x, Complex Z){
+
+    MaxAveragePower result;
+
+    result.Zth = Z;
+    result.Zl = cconj(Z);
+
+    switch(mode){
+        case MAP_V:
+            result.Vth = to_rms(x);
+            result.In = cdiv(result.Vth,cadd(result.Zth, result.Zl));
+            break;
+
+        case MAP_I:
+            result.In = to_rms(x);
+            result.Vth = cmul(result.In, Z);
+            break;
+
+        case MAP_Vrms:
+            result.Vth = x;
+            result.In = cdiv(x, cadd(result.Zth, result.Zl));
+            break;
+
+        case MAP_Irms:
+            result.In = x;
+            result.Vth = cmul(x, Z);
+            break;
+
+    }
+    result.pmax = pow(result.Vth.mag,2) / (4 * Z.real);
+    return result;
+};
+
 //Power triangle solver helper function
 PowerTriangle solve_pt(TriangleInput mode , double x, double y){
 

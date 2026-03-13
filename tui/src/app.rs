@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use crate::ffi::{self, Complex};
 use crate::forms::{all_forms, Form, FormResult, FormRunner};
 
-pub enum Mode { Menu, Form, Result, Triangle, Solver, Quit }
+pub enum Mode { Menu, Form, Result, Triangle, Solver, MapSolver, MapResult, Quit }
 
 pub struct App {
     pub mode:       Mode,
@@ -18,6 +18,14 @@ pub struct App {
     // solver
     pub solver_fields: [String; 5],
     pub solver_focus:  usize,
+    // map solver
+    // map_mode: 0=MAP_V, 1=MAP_I, 2=MAP_Vrms, 3=MAP_Irms
+    // map_fields: [x_form, x_v1, x_v2, z_form, z_v1, z_v2]
+    // map_focus:  0=mode selector, 1-3=x fields, 4-6=z fields
+    pub map_mode:   usize,
+    pub map_fields: [String; 6],
+    pub map_focus:  usize,
+    pub map_result: Option<ffi::MaxAveragePower>,
 }
 
 impl App {
@@ -31,6 +39,13 @@ impl App {
             triangle_s:    Complex { real: 0.0, imag: 0.0, mag: 0.0, phase: 0.0 },
             solver_fields: Default::default(),
             solver_focus:  0,
+            map_mode:   0,
+            map_fields: [
+                "1".to_string(), String::new(), String::new(),
+                "1".to_string(), String::new(), String::new(),
+            ],
+            map_focus:  0,
+            map_result: None,
         }
     }
 
@@ -38,10 +53,12 @@ impl App {
         match self.mode {
             Mode::Menu     => self.menu_key(key),
             Mode::Form     => self.form_key(key),
-            Mode::Result   => self.mode = Mode::Menu,
-            Mode::Triangle => self.mode = Mode::Menu,
-            Mode::Solver   => self.solver_key(key),
-            Mode::Quit     => {}
+            Mode::Result    => self.mode = Mode::Menu,
+            Mode::Triangle  => self.mode = Mode::Menu,
+            Mode::Solver    => self.solver_key(key),
+            Mode::MapSolver => self.map_key(key),
+            Mode::MapResult => self.mode = Mode::Menu,
+            Mode::Quit      => {}
         }
     }
 
@@ -64,6 +81,9 @@ impl App {
                 if matches!(form.result, FormResult::Solver) {
                     self.forms[self.selected] = form;
                     self.mode = Mode::Solver;
+                } else if matches!(form.result, FormResult::MapSolver) {
+                    self.forms[self.selected] = form;
+                    self.mode = Mode::MapSolver;
                 } else {
                     self.runner = Some(FormRunner::new(form));
                     self.mode = Mode::Form;
@@ -153,6 +173,67 @@ impl App {
         self.mode = Mode::Triangle;
     }
 
+    fn map_key(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Esc => {
+                self.map_mode = 0;
+                self.map_fields = [
+                    "1".to_string(), String::new(), String::new(),
+                    "1".to_string(), String::new(), String::new(),
+                ];
+                self.map_focus = 0;
+                self.mode = Mode::Menu;
+            }
+            KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
+                self.map_focus = (self.map_focus + 1) % 7;
+            }
+            KeyCode::BackTab | KeyCode::Up | KeyCode::Char('k') => {
+                self.map_focus = (self.map_focus + 6) % 7;
+            }
+            KeyCode::Enter => self.map_submit(),
+            KeyCode::Backspace => {
+                if matches!(self.map_focus, 2 | 3 | 5 | 6) {
+                    self.map_fields[self.map_focus - 1].pop();
+                }
+            }
+            KeyCode::Char(c) => {
+                match self.map_focus {
+                    0 => match c {
+                        '1' => self.map_mode = 0,
+                        '2' => self.map_mode = 1,
+                        '3' => self.map_mode = 2,
+                        '4' => self.map_mode = 3,
+                        _ => {}
+                    },
+                    1 | 4 => {
+                        // form selector: fields[0] and fields[3]
+                        let fi = self.map_focus - 1;
+                        if c == '1' || c == '2' {
+                            self.map_fields[fi] = c.to_string();
+                        }
+                    }
+                    2 | 3 | 5 | 6 => {
+                        let fi = self.map_focus - 1;
+                        if c.is_ascii_digit() || c == '.' || c == '-' {
+                            self.map_fields[fi].push(c);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn map_submit(&mut self) {
+        let mode_c = self.map_mode as std::ffi::c_int;
+        let x = ffi::parse_complex(&self.map_fields[0..3], 0);
+        let z = ffi::parse_complex(&self.map_fields[3..6], 0);
+        let result = unsafe { ffi::solve_ckt(mode_c, x, z) };
+        self.map_result = Some(result);
+        self.mode = Mode::MapResult;
+    }
+
     fn form_key(&mut self, key: KeyCode) {
         let Some(runner) = self.runner.as_mut() else { return };
         match key {
@@ -176,7 +257,8 @@ impl App {
                             self.forms[self.selected] = runner.form;
                             self.mode = Mode::Triangle;
                         }
-                        FormResult::Solver => {} // handled in menu_key
+                        FormResult::Solver    => {} // handled in menu_key
+                        FormResult::MapSolver => {} // handled in menu_key
                     }
                 }
             }

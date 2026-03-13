@@ -63,9 +63,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
         Mode::Menu => draw_menu(frame, app),
         Mode::Form => draw_form(frame, app),
         Mode::Result => draw_result(frame, app),
-        Mode::Triangle => draw_triangle(frame, app),
-        Mode::Solver => draw_solver(frame, app),
-        Mode::Quit => {}
+        Mode::Triangle  => draw_triangle(frame, app),
+        Mode::Solver    => draw_solver(frame, app),
+        Mode::MapSolver => draw_map_solver(frame, app),
+        Mode::MapResult => draw_map_result(frame, app),
+        Mode::Quit      => {}
     }
 }
 
@@ -463,6 +465,298 @@ fn draw_triangle(frame: &mut Frame, app: &App) {
     frame.render_widget(Paragraph::new(info), info_inner);
 
     // ── Hint ───────────────────────────────────────────────────────────────
+    let hint = Paragraph::new(Line::from(vec![
+        Span::styled("  any key", bold(CYAN)),
+        Span::styled("  return to menu  ", dim()),
+    ]))
+    .alignment(Alignment::Center);
+    frame.render_widget(hint, chunks[2]);
+}
+
+// ---------------------------------------------------------------------------
+// Max Average Power Solver
+// ---------------------------------------------------------------------------
+
+fn draw_map_solver(frame: &mut Frame, app: &App) {
+    let area = centered(62, 92, frame.area());
+    let block = outer_block("Max Average Power Transfer");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // instruction
+            Constraint::Length(3), // mode selector
+            Constraint::Length(1), // separator
+            Constraint::Length(3), // x group label + fields
+            Constraint::Length(1), // separator
+            Constraint::Length(3), // Zth group fields
+            Constraint::Min(0),    // spacer
+            Constraint::Length(1), // hint
+        ])
+        .split(inner);
+
+    let mode_names = ["Vth  (peak)", "In  (peak)", "Vth  (RMS)", "In  (RMS)"];
+    let instr = Paragraph::new(
+        "  Fill in the active source (Vth or In) and Zth, then press Enter.\n  Press 1-4 to select mode."
+    ).style(bold(YELLOW));
+    frame.render_widget(instr, chunks[0]);
+
+    // Mode selector row
+    let mode_block = Block::default()
+        .title(" Mode ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(if app.map_focus == 0 { bold(CYAN) } else { dim() });
+    let mode_inner = mode_block.inner(chunks[1]);
+    frame.render_widget(mode_block, chunks[1]);
+    let mode_spans: Vec<Span> = mode_names.iter().enumerate().map(|(i, name)| {
+        if i == app.map_mode {
+            Span::styled(format!("  [{}] {} ", i + 1, name), bold(CYAN))
+        } else {
+            Span::styled(format!("  {}. {} ", i + 1, name), dim())
+        }
+    }).collect();
+    frame.render_widget(
+        Paragraph::new(Line::from(mode_spans)),
+        mode_inner,
+    );
+
+    // x group (Vth or In depending on mode)
+    let x_label = match app.map_mode {
+        0 => "Vth  (peak)",
+        1 => "In  (peak)",
+        2 => "Vth  (RMS)",
+        _ => "In  (RMS)",
+    };
+    let x_color = match app.map_mode { 0 | 2 => GREEN, _ => YELLOW };
+    let sep1 = Paragraph::new(Line::from(vec![
+        Span::styled("─── ", dim()),
+        Span::styled(x_label, bold(x_color)),
+        Span::styled(" ───", dim()),
+    ]));
+    frame.render_widget(sep1, chunks[2]);
+
+    draw_complex_row(frame, chunks[3], app, 1, x_label);
+
+    let sep2 = Paragraph::new(Line::from(vec![
+        Span::styled("─── ", dim()),
+        Span::styled("Zth  (Thevenin impedance)", bold(CYAN)),
+        Span::styled(" ───", dim()),
+    ]));
+    frame.render_widget(sep2, chunks[4]);
+
+    draw_complex_row(frame, chunks[5], app, 4, "Zth");
+
+    let hint = Paragraph::new(Line::from(vec![
+        Span::styled("  Tab/↑↓", bold(CYAN)),
+        Span::styled("  navigate    ", dim()),
+        Span::styled("1/2", bold(CYAN)),
+        Span::styled("  rect/polar    ", dim()),
+        Span::styled("Enter", bold(CYAN)),
+        Span::styled("  solve    ", dim()),
+        Span::styled("Esc", bold(CYAN)),
+        Span::styled("  back  ", dim()),
+    ]));
+    frame.render_widget(hint, chunks[7]);
+}
+
+/// Renders a row of 3 boxes for one complex input starting at focus_base.
+/// focus_base+0 = form selector, focus_base+1 = v1, focus_base+2 = v2
+fn draw_complex_row(frame: &mut Frame, area: Rect, app: &App, focus_base: usize, _label: &str) {
+    let fi = focus_base - 1; // index into map_fields
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(22),
+            Constraint::Percentage(39),
+            Constraint::Percentage(39),
+        ])
+        .split(area);
+
+    let form_val = app.map_fields[fi].trim().parse::<usize>().unwrap_or(1);
+    let form_name = if form_val == 2 { "Polar" } else { "Rect" };
+    let v1_label = if form_val == 2 { "mag" } else { "real" };
+    let v2_label = if form_val == 2 { "phase (°)" } else { "imag" };
+
+    let sub_data = [
+        (focus_base,     format!(" {} ", form_name), fi),
+        (focus_base + 1, format!(" {} ", v1_label),  fi + 1),
+        (focus_base + 2, format!(" {} ", v2_label),  fi + 2),
+    ];
+
+    for (focus, title, field_idx) in sub_data {
+        let focused = focus == app.map_focus;
+        let border_style = if focused { bold(CYAN) } else { dim() };
+        let b = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(border_style);
+        let inner = b.inner(cols[focus - focus_base]);
+        frame.render_widget(b, cols[focus - focus_base]);
+        let cursor = if focused { "_" } else { "" };
+        let text = format!("  {}{}", app.map_fields[field_idx], cursor);
+        frame.render_widget(
+            Paragraph::new(text).style(if focused { bold(WHITE) } else { dim() }),
+            inner,
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Max Average Power Result
+// ---------------------------------------------------------------------------
+
+fn draw_map_result(frame: &mut Frame, app: &App) {
+    let Some(map) = app.map_result else { return };
+    let pmax = map.pmax;
+
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),    // canvas
+            Constraint::Length(7), // dashboard
+            Constraint::Length(1), // hint
+        ])
+        .split(area);
+
+    // ── Circuit canvas ──────────────────────────────────────────────────────
+    let canvas_block = outer_block("Thevenin  ║  Norton  (ZL = Zth*)");
+    let canvas = Canvas::default()
+        .block(canvas_block)
+        .x_bounds([0.0, 100.0])
+        .y_bounds([0.0, 100.0])
+        .paint(move |ctx| {
+            // ── Thevenin (left half: x 4-44) ────────────────────────────
+            // Outer rectangle
+            ctx.draw(&CLine { x1:  4.0, y1: 80.0, x2: 44.0, y2: 80.0, color: WHITE });
+            ctx.draw(&CLine { x1:  4.0, y1: 80.0, x2:  4.0, y2: 25.0, color: WHITE });
+            ctx.draw(&CLine { x1:  4.0, y1: 25.0, x2: 44.0, y2: 25.0, color: WHITE });
+            ctx.draw(&CLine { x1: 44.0, y1: 25.0, x2: 44.0, y2: 80.0, color: WHITE });
+            // Zth: break in top wire with coloured segment
+            ctx.draw(&CLine { x1:  4.0, y1: 80.0, x2: 17.0, y2: 80.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 30.0, y1: 80.0, x2: 44.0, y2: 80.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 17.0, y1: 80.0, x2: 17.0, y2: 84.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 17.0, y1: 84.0, x2: 30.0, y2: 84.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 30.0, y1: 84.0, x2: 30.0, y2: 80.0, color: YELLOW });
+            // Vth: left side with source symbol
+            ctx.draw(&CLine { x1:  4.0, y1: 56.0, x2:  4.0, y2: 25.0, color: GREEN });
+            ctx.draw(&CLine { x1:  4.0, y1: 80.0, x2:  4.0, y2: 62.0, color: GREEN });
+            // source circle
+            ctx.draw(&CLine { x1:  1.0, y1: 62.0, x2:  7.0, y2: 62.0, color: GREEN });
+            ctx.draw(&CLine { x1:  1.0, y1: 56.0, x2:  7.0, y2: 56.0, color: GREEN });
+            ctx.draw(&CLine { x1:  1.0, y1: 56.0, x2:  1.0, y2: 62.0, color: GREEN });
+            ctx.draw(&CLine { x1:  7.0, y1: 56.0, x2:  7.0, y2: 62.0, color: GREEN });
+            // Zl: right side
+            ctx.draw(&CLine { x1: 44.0, y1: 80.0, x2: 44.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 41.0, y1: 62.0, x2: 47.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 41.0, y1: 56.0, x2: 47.0, y2: 56.0, color: CYAN });
+            ctx.draw(&CLine { x1: 41.0, y1: 56.0, x2: 41.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 47.0, y1: 56.0, x2: 47.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 44.0, y1: 25.0, x2: 44.0, y2: 56.0, color: CYAN });
+            // Labels
+            ctx.print( 0.0, 91.0, Line::styled("THEVENIN", bold(WHITE)));
+            ctx.print(18.0, 85.5, Line::styled("Zth", bold(YELLOW)));
+            ctx.print( 0.0, 58.0, Line::styled("+", bold(GREEN)));
+            ctx.print( 0.0, 56.0, Line::styled("Vth", bold(GREEN)));
+            ctx.print( 0.0, 54.5, Line::styled("-", bold(GREEN)));
+            ctx.print(45.0, 58.0, Line::styled("Zl", bold(CYAN)));
+            ctx.print(40.0, 81.5, Line::styled("A", bold(WHITE)));
+            ctx.print(40.0, 22.0, Line::styled("B", bold(WHITE)));
+
+            // ── Divider ─────────────────────────────────────────────────
+            ctx.draw(&CLine { x1: 50.0, y1: 10.0, x2: 50.0, y2: 90.0, color: GRAY });
+
+            // ── Norton (right half: x 56-96) ────────────────────────────
+            // Outer rectangle
+            ctx.draw(&CLine { x1: 56.0, y1: 80.0, x2: 96.0, y2: 80.0, color: WHITE });
+            ctx.draw(&CLine { x1: 56.0, y1: 80.0, x2: 56.0, y2: 25.0, color: WHITE });
+            ctx.draw(&CLine { x1: 56.0, y1: 25.0, x2: 96.0, y2: 25.0, color: WHITE });
+            ctx.draw(&CLine { x1: 96.0, y1: 25.0, x2: 96.0, y2: 80.0, color: WHITE });
+            // In: left side with source symbol
+            ctx.draw(&CLine { x1: 56.0, y1: 56.0, x2: 56.0, y2: 25.0, color: GREEN });
+            ctx.draw(&CLine { x1: 56.0, y1: 80.0, x2: 56.0, y2: 62.0, color: GREEN });
+            ctx.draw(&CLine { x1: 53.0, y1: 62.0, x2: 59.0, y2: 62.0, color: GREEN });
+            ctx.draw(&CLine { x1: 53.0, y1: 56.0, x2: 59.0, y2: 56.0, color: GREEN });
+            ctx.draw(&CLine { x1: 53.0, y1: 56.0, x2: 53.0, y2: 62.0, color: GREEN });
+            ctx.draw(&CLine { x1: 59.0, y1: 56.0, x2: 59.0, y2: 62.0, color: GREEN });
+            // Zth: middle divider
+            ctx.draw(&CLine { x1: 76.0, y1: 80.0, x2: 76.0, y2: 62.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 73.0, y1: 62.0, x2: 79.0, y2: 62.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 73.0, y1: 56.0, x2: 79.0, y2: 56.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 73.0, y1: 56.0, x2: 73.0, y2: 62.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 79.0, y1: 56.0, x2: 79.0, y2: 62.0, color: YELLOW });
+            ctx.draw(&CLine { x1: 76.0, y1: 25.0, x2: 76.0, y2: 56.0, color: YELLOW });
+            // Zl: right side
+            ctx.draw(&CLine { x1: 96.0, y1: 80.0, x2: 96.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 93.0, y1: 62.0, x2: 99.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 93.0, y1: 56.0, x2: 99.0, y2: 56.0, color: CYAN });
+            ctx.draw(&CLine { x1: 93.0, y1: 56.0, x2: 93.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 99.0, y1: 56.0, x2: 99.0, y2: 62.0, color: CYAN });
+            ctx.draw(&CLine { x1: 96.0, y1: 25.0, x2: 96.0, y2: 56.0, color: CYAN });
+            // Labels
+            ctx.print(56.0, 91.0, Line::styled("NORTON", bold(WHITE)));
+            ctx.print(53.0, 58.0, Line::styled("In", bold(GREEN)));
+            ctx.print(74.0, 58.0, Line::styled("Zth", bold(YELLOW)));
+            ctx.print(97.0, 58.0, Line::styled("Zl", bold(CYAN)));
+            ctx.print(92.0, 81.5, Line::styled("A", bold(WHITE)));
+            ctx.print(92.0, 22.0, Line::styled("B", bold(WHITE)));
+        });
+    frame.render_widget(canvas, chunks[0]);
+
+    // ── Dashboard ────────────────────────────────────────────────────────────
+    let dash_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(bold(CYAN));
+    let dash_inner = dash_block.inner(chunks[1]);
+    frame.render_widget(dash_block, chunks[1]);
+
+    let zl_sign = if map.Zl.imag >= 0.0 { '+' } else { '-' };
+    let zth_sign = if map.Zth.imag >= 0.0 { '+' } else { '-' };
+    let vth_sign = if map.Vth.imag >= 0.0 { '+' } else { '-' };
+    let in_sign  = if map.In.imag  >= 0.0 { '+' } else { '-' };
+
+    let dash = vec![
+        Line::from(vec![
+            Span::styled("  Vth = ", bold(GREEN)),
+            Span::styled(
+                format!("{:.4} {} j{:.4}  =  {:.4} ∠ {:.4}°",
+                    map.Vth.real, vth_sign, map.Vth.imag.abs(), map.Vth.mag, map.Vth.phase),
+                bold(WHITE)),
+        ]),
+        Line::from(vec![
+            Span::styled("  In  = ", bold(GREEN)),
+            Span::styled(
+                format!("{:.4} {} j{:.4}  =  {:.4} ∠ {:.4}°",
+                    map.In.real, in_sign, map.In.imag.abs(), map.In.mag, map.In.phase),
+                bold(WHITE)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Zth = ", bold(YELLOW)),
+            Span::styled(
+                format!("{:.4} {} j{:.4}  =  {:.4} ∠ {:.4}°",
+                    map.Zth.real, zth_sign, map.Zth.imag.abs(), map.Zth.mag, map.Zth.phase),
+                bold(WHITE)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Zl  = ", bold(CYAN)),
+            Span::styled(
+                format!("{:.4} {} j{:.4}  =  {:.4} ∠ {:.4}°",
+                    map.Zl.real, zl_sign, map.Zl.imag.abs(), map.Zl.mag, map.Zl.phase),
+                bold(WHITE)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Pmax = ", bold(YELLOW)),
+            Span::styled(format!("{:.4} W", pmax), bold(WHITE)),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(dash), dash_inner);
+
+    // ── Hint ─────────────────────────────────────────────────────────────────
     let hint = Paragraph::new(Line::from(vec![
         Span::styled("  any key", bold(CYAN)),
         Span::styled("  return to menu  ", dim()),
