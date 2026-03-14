@@ -1,75 +1,97 @@
-use crossterm::event::KeyCode;
 use crate::ffi::{self, Complex};
 use crate::forms::{all_forms, Form, FormResult, FormRunner};
+use crossterm::event::KeyCode;
 
-pub enum Mode { Menu, Form, Result, Triangle, Solver, MapSolver, MapResult, Quit }
+pub enum Mode {
+    Menu,
+    Form,
+    Result,
+    Triangle,
+    Solver,
+    MapSolver,
+    MapResult,
+    Quit,
+}
 
 pub struct App {
-    pub mode:       Mode,
+    pub mode: Mode,
     // menu
-    pub forms:      Vec<Form>,
-    pub selected:   usize,
+    pub forms: Vec<Form>,
+    pub selected: usize,
     // form
-    pub runner:     Option<FormRunner>,
+    pub runner: Option<FormRunner>,
     // text result
-    pub result:     String,
+    pub result: String,
     // triangle result
     pub triangle_s: Complex,
     // solver
     pub solver_fields: [String; 5],
-    pub solver_focus:  usize,
+    pub solver_focus: usize,
     // map solver
     // map_mode: 0=MAP_V, 1=MAP_I, 2=MAP_Vrms, 3=MAP_Irms
     // map_fields: [x_form, x_v1, x_v2, z_form, z_v1, z_v2]
     // map_focus:  0=mode selector, 1-3=x fields, 4-6=z fields
-    pub map_mode:   usize,
+    pub map_mode: usize,
     pub map_fields: [String; 6],
-    pub map_focus:  usize,
+    pub map_focus: usize,
     pub map_result: Option<ffi::MaxAveragePower>,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
-            mode:       Mode::Menu,
-            forms:      all_forms(),
-            selected:   0,
-            runner:     None,
-            result:     String::new(),
-            triangle_s:    Complex { real: 0.0, imag: 0.0, mag: 0.0, phase: 0.0 },
+            mode: Mode::Menu,
+            forms: all_forms(),
+            selected: 0,
+            runner: None,
+            result: String::new(),
+            triangle_s: Complex {
+                real: 0.0,
+                imag: 0.0,
+                mag: 0.0,
+                phase: 0.0,
+            },
             solver_fields: Default::default(),
-            solver_focus:  0,
-            map_mode:   0,
+            solver_focus: 0,
+            map_mode: 0,
             map_fields: [
-                "1".to_string(), String::new(), String::new(),
-                "1".to_string(), String::new(), String::new(),
+                "1".to_string(),
+                String::new(),
+                String::new(),
+                "1".to_string(),
+                String::new(),
+                String::new(),
             ],
-            map_focus:  0,
+            map_focus: 0,
             map_result: None,
         }
     }
 
     pub fn handle_key(&mut self, key: KeyCode) {
         match self.mode {
-            Mode::Menu     => self.menu_key(key),
-            Mode::Form     => self.form_key(key),
-            Mode::Result    => self.mode = Mode::Menu,
-            Mode::Triangle  => self.mode = Mode::Menu,
-            Mode::Solver    => self.solver_key(key),
+            Mode::Menu => self.menu_key(key),
+            Mode::Form => self.form_key(key),
+            Mode::Result => self.mode = Mode::Menu,
+            Mode::Triangle => self.mode = Mode::Menu,
+            Mode::Solver => self.solver_key(key),
             Mode::MapSolver => self.map_key(key),
             Mode::MapResult => self.mode = Mode::Menu,
-            Mode::Quit      => {}
+            Mode::Quit => {}
         }
     }
 
     fn menu_key(&mut self, key: KeyCode) {
         let len = self.forms.len();
         match key {
-            KeyCode::Up   | KeyCode::Char('k') => {
-                if self.selected > 0 { self.selected -= 1; }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if self.selected < len - 1 { self.selected += 1; }
+                if self.selected < len - 1 {
+                    self.selected += 1;
+                }
             }
             KeyCode::Enter => {
                 let placeholder = Form {
@@ -97,7 +119,9 @@ impl App {
     fn solver_key(&mut self, key: KeyCode) {
         match key {
             KeyCode::Esc => {
-                for f in &mut self.solver_fields { f.clear(); }
+                for f in &mut self.solver_fields {
+                    f.clear();
+                }
                 self.solver_focus = 0;
                 self.mode = Mode::Menu;
             }
@@ -107,7 +131,9 @@ impl App {
             KeyCode::BackTab | KeyCode::Up | KeyCode::Char('k') => {
                 self.solver_focus = (self.solver_focus + 4) % 5;
             }
-            KeyCode::Backspace => { self.solver_fields[self.solver_focus].pop(); }
+            KeyCode::Backspace => {
+                self.solver_fields[self.solver_focus].pop();
+            }
             KeyCode::Enter => self.solver_submit(),
             KeyCode::Char(c) if c.is_ascii_digit() || c == '.' || c == '-' => {
                 self.solver_fields[self.solver_focus].push(c);
@@ -118,16 +144,29 @@ impl App {
 
     fn solver_submit(&mut self) {
         // Parse non-empty fields: indices 0=P, 1=Q, 2=S, 3=θ°, 4=pf
-        let vals: Vec<Option<f64>> = self.solver_fields.iter()
-            .map(|s| { let t = s.trim(); if t.is_empty() { None } else { t.parse().ok() } })
+        let vals: Vec<Option<f64>> = self
+            .solver_fields
+            .iter()
+            .map(|s| {
+                let t = s.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    t.parse().ok()
+                }
+            })
             .collect();
 
-        let filled: Vec<usize> = vals.iter().enumerate()
+        let filled: Vec<usize> = vals
+            .iter()
+            .enumerate()
             .filter(|(_, v)| v.is_some())
             .map(|(i, _)| i)
             .collect();
 
-        if filled.len() != 2 { return; }
+        if filled.len() != 2 {
+            return;
+        }
 
         let (ia, ib) = (filled[0], filled[1]);
         let a = vals[ia].unwrap();
@@ -139,7 +178,7 @@ impl App {
         // For θ and Q cases, the sign is already encoded in the value.
         let leading = match (ia, ib) {
             (1, 4) => a < 0.0 || b < 0.0, // Q<0 or pf<0
-            (_, 4) => b < 0.0,             // pf<0
+            (_, 4) => b < 0.0,            // pf<0
             _ => false,
         };
 
@@ -147,28 +186,30 @@ impl App {
         let (x, y) = if ib == 4 { (a.abs(), b.abs()) } else { (a, b) };
 
         let (mode, fx, fy): (ffi::TriangleInput, f64, f64) = match (ia, ib) {
-            (0, 1) => (ffi::PT_P_Q,     x,  y),
-            (0, 2) => (ffi::PT_P_S,     x,  y),
-            (0, 3) => (ffi::PT_P_THETA, x,  y.to_radians()),
-            (0, 4) => (ffi::PT_P_PF,    x,  y),
-            (1, 2) => (ffi::PT_Q_S,     x,  y),
-            (1, 3) => (ffi::PT_Q_THETA, x,  y.to_radians()),
-            (1, 4) => (ffi::PT_Q_PF,    x,  y),
-            (2, 3) => (ffi::PT_S_THETA, x,  y.to_radians()),
-            (2, 4) => (ffi::PT_S_PF,    x,  y),
-            _      => return,
+            (0, 1) => (ffi::PT_P_Q, x, y),
+            (0, 2) => (ffi::PT_P_S, x, y),
+            (0, 3) => (ffi::PT_P_THETA, x, y.to_radians()),
+            (0, 4) => (ffi::PT_P_PF, x, y),
+            (1, 2) => (ffi::PT_Q_S, x, y),
+            (1, 3) => (ffi::PT_Q_THETA, x, y.to_radians()),
+            (1, 4) => (ffi::PT_Q_PF, x, y),
+            (2, 3) => (ffi::PT_S_THETA, x, y.to_radians()),
+            (2, 4) => (ffi::PT_S_PF, x, y),
+            _ => return,
         };
 
         let mut pt = unsafe { ffi::solve_pt(mode, fx, fy) };
 
         // Flip Q and θ for leading triangles derived from pf input
         if leading {
-            pt.Q     = -pt.Q.abs();
+            pt.Q = -pt.Q.abs();
             pt.theta = -pt.theta.abs();
         }
 
         self.triangle_s = ffi::pt_to_complex(pt);
-        for f in &mut self.solver_fields { f.clear(); }
+        for f in &mut self.solver_fields {
+            f.clear();
+        }
         self.solver_focus = 0;
         self.mode = Mode::Triangle;
     }
@@ -178,8 +219,12 @@ impl App {
             KeyCode::Esc => {
                 self.map_mode = 0;
                 self.map_fields = [
-                    "1".to_string(), String::new(), String::new(),
-                    "1".to_string(), String::new(), String::new(),
+                    "1".to_string(),
+                    String::new(),
+                    String::new(),
+                    "1".to_string(),
+                    String::new(),
+                    String::new(),
                 ];
                 self.map_focus = 0;
                 self.mode = Mode::Menu;
@@ -226,7 +271,12 @@ impl App {
     }
 
     fn map_submit(&mut self) {
-        let mode_c = self.map_mode as std::ffi::c_int;
+        let mode_c = match self.map_mode {
+            0 => ffi::MAP_V,
+            1 => ffi::MAP_I,
+            2 => ffi::MAP_VRMS,
+            _ => ffi::MAP_IRMS,
+        };
         let x = ffi::parse_complex(&self.map_fields[0..3], 0);
         let z = ffi::parse_complex(&self.map_fields[3..6], 0);
         let result = unsafe { ffi::solve_ckt(mode_c, x, z) };
@@ -235,14 +285,18 @@ impl App {
     }
 
     fn form_key(&mut self, key: KeyCode) {
-        let Some(runner) = self.runner.as_mut() else { return };
+        let Some(runner) = self.runner.as_mut() else {
+            return;
+        };
         match key {
             KeyCode::Esc => {
                 let runner = self.runner.take().unwrap();
                 self.forms[self.selected] = runner.form;
                 self.mode = Mode::Menu;
             }
-            KeyCode::Backspace => { runner.input_buf.pop(); }
+            KeyCode::Backspace => {
+                runner.input_buf.pop();
+            }
             KeyCode::Enter => {
                 if runner.submit() {
                     let runner = self.runner.take().unwrap();
@@ -257,12 +311,14 @@ impl App {
                             self.forms[self.selected] = runner.form;
                             self.mode = Mode::Triangle;
                         }
-                        FormResult::Solver    => {} // handled in menu_key
+                        FormResult::Solver => {}    // handled in menu_key
                         FormResult::MapSolver => {} // handled in menu_key
                     }
                 }
             }
-            KeyCode::Char(c) => { runner.input_buf.push(c); }
+            KeyCode::Char(c) => {
+                runner.input_buf.push(c);
+            }
             _ => {}
         }
     }
