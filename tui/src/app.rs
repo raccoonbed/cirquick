@@ -10,6 +10,7 @@ pub enum Mode {
     Solver,
     MapSolver,
     MapResult,
+    ZBuilder,
     Quit,
 }
 
@@ -35,6 +36,15 @@ pub struct App {
     pub map_fields: [String; 6],
     pub map_focus: usize,
     pub map_result: Option<ffi::MaxAveragePower>,
+    // z builder
+    // z_fields: [form_selector, v1, v2]
+    // z_focus:  0=form, 1=v1, 2=v2, 3=op selector
+    // z_op:     0=series, 1=parallel
+    pub z_acc: ffi::Complex,
+    pub z_fields: [String; 3],
+    pub z_focus: usize,
+    pub z_op: usize,
+    pub z_history: Vec<(ffi::Complex, bool)>,
 }
 
 impl App {
@@ -64,6 +74,11 @@ impl App {
             ],
             map_focus: 0,
             map_result: None,
+            z_acc: ffi::Complex { real: 0.0, imag: 0.0, mag: 0.0, phase: 0.0 },
+            z_fields: ["1".to_string(), String::new(), String::new()],
+            z_focus: 0,
+            z_op: 0,
+            z_history: Vec::new(),
         }
     }
 
@@ -76,6 +91,7 @@ impl App {
             Mode::Solver => self.solver_key(key),
             Mode::MapSolver => self.map_key(key),
             Mode::MapResult => self.mode = Mode::Menu,
+            Mode::ZBuilder => self.z_builder_key(key),
             Mode::Quit => {}
         }
     }
@@ -106,6 +122,9 @@ impl App {
                 } else if matches!(form.result, FormResult::MapSolver) {
                     self.forms[self.selected] = form;
                     self.mode = Mode::MapSolver;
+                } else if matches!(form.result, FormResult::ZBuilder) {
+                    self.forms[self.selected] = form;
+                    self.mode = Mode::ZBuilder;
                 } else {
                     self.runner = Some(FormRunner::new(form));
                     self.mode = Mode::Form;
@@ -313,6 +332,7 @@ impl App {
                         }
                         FormResult::Solver => {}    // handled in menu_key
                         FormResult::MapSolver => {} // handled in menu_key
+                        FormResult::ZBuilder => {}  // handled in menu_key
                     }
                 }
             }
@@ -321,5 +341,69 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn z_builder_key(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Esc => {
+                self.z_acc = ffi::Complex { real: 0.0, imag: 0.0, mag: 0.0, phase: 0.0 };
+                self.z_fields = ["1".to_string(), String::new(), String::new()];
+                self.z_focus = 0;
+                self.z_op = 0;
+                self.z_history.clear();
+                self.mode = Mode::Menu;
+            }
+            KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
+                self.z_focus = (self.z_focus + 1) % 4;
+            }
+            KeyCode::BackTab | KeyCode::Up | KeyCode::Char('k') => {
+                self.z_focus = (self.z_focus + 3) % 4;
+            }
+            KeyCode::Enter => self.z_builder_submit(),
+            KeyCode::Backspace => {
+                if matches!(self.z_focus, 1 | 2) {
+                    self.z_fields[self.z_focus].pop();
+                }
+            }
+            KeyCode::Char(c) => match self.z_focus {
+                0 => {
+                    if c == '1' { self.z_fields[0] = "1".to_string(); }
+                    else if c == '2' { self.z_fields[0] = "2".to_string(); }
+                }
+                1 | 2 => {
+                    if c.is_ascii_digit() || c == '.' || c == '-' {
+                        self.z_fields[self.z_focus].push(c);
+                    }
+                }
+                3 => {
+                    if c == '1' || c == 's' { self.z_op = 0; }
+                    else if c == '2' || c == 'p' { self.z_op = 1; }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn z_builder_submit(&mut self) {
+        if self.z_fields[1].trim().is_empty() {
+            return;
+        }
+        let new_z = ffi::parse_complex(&self.z_fields, 0);
+        let is_parallel = self.z_op == 1;
+        if self.z_history.is_empty() {
+            self.z_acc = new_z;
+        } else {
+            self.z_acc = unsafe {
+                if is_parallel {
+                    ffi::Z_parallel2(self.z_acc, new_z)
+                } else {
+                    ffi::Z_series2(self.z_acc, new_z)
+                }
+            };
+        }
+        self.z_history.push((new_z, is_parallel));
+        self.z_fields = ["1".to_string(), String::new(), String::new()];
+        self.z_focus = 0;
     }
 }

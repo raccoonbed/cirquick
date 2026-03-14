@@ -67,6 +67,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         Mode::Solver    => draw_solver(frame, app),
         Mode::MapSolver => draw_map_solver(frame, app),
         Mode::MapResult => draw_map_result(frame, app),
+        Mode::ZBuilder  => draw_z_builder(frame, app),
         Mode::Quit      => {}
     }
 }
@@ -763,4 +764,184 @@ fn draw_map_result(frame: &mut Frame, app: &App) {
     ]))
     .alignment(Alignment::Center);
     frame.render_widget(hint, chunks[2]);
+}
+
+// ---------------------------------------------------------------------------
+// Impedance Builder
+// ---------------------------------------------------------------------------
+
+fn draw_z_builder(frame: &mut Frame, app: &App) {
+    let area = centered(70, 95, frame.area());
+    let block = outer_block("Impedance Builder");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // instruction
+            Constraint::Min(0),    // history
+            Constraint::Length(1), // "─── next component ───"
+            Constraint::Length(3), // input row
+            Constraint::Length(1), // "─── combine with ───"
+            Constraint::Length(3), // op selector
+            Constraint::Length(3), // running total
+            Constraint::Length(1), // hint
+        ])
+        .split(inner);
+
+    // Instruction
+    let instr = Paragraph::new(
+        "  Enter components one at a time and press Enter to add."
+    ).style(bold(YELLOW));
+    frame.render_widget(instr, chunks[0]);
+
+    // History
+    if app.z_history.is_empty() {
+        frame.render_widget(
+            Paragraph::new("  No components added yet.").style(dim()),
+            chunks[1],
+        );
+    } else {
+        let items: Vec<ListItem> = app.z_history.iter().enumerate().map(|(i, &(z, is_par))| {
+            let sign = if z.imag >= 0.0 { '+' } else { '-' };
+            let prefix = if i == 0 {
+                Span::styled(format!("  Z{}  = ", i + 1), bold(CYAN))
+            } else {
+                let op = if is_par { "∥" } else { "+" };
+                Span::styled(format!("  {} Z{} = ", op, i + 1), bold(CYAN))
+            };
+            let val = Span::styled(
+                format!("{:.4} {} j{:.4}  =  {:.4} ∠ {:.4}°",
+                    z.real, sign, z.imag.abs(), z.mag, z.phase),
+                bold(WHITE),
+            );
+            ListItem::new(Line::from(vec![prefix, val]))
+        }).collect();
+        frame.render_widget(List::new(items), chunks[1]);
+    }
+
+    // "─── next component ───"
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("─── ", dim()),
+            Span::styled("next component", bold(YELLOW)),
+            Span::styled(" ───", dim()),
+        ])),
+        chunks[2],
+    );
+
+    // Input row (form | v1 | v2)
+    {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(22),
+                Constraint::Percentage(39),
+                Constraint::Percentage(39),
+            ])
+            .split(chunks[3]);
+
+        let form_val = app.z_fields[0].trim().parse::<usize>().unwrap_or(1);
+        let form_name = if form_val == 2 { "Polar" } else { "Rect" };
+        let v1_label  = if form_val == 2 { "mag" } else { "real" };
+        let v2_label  = if form_val == 2 { "phase (°)" } else { "imag" };
+
+        for (col, focus, title, field_idx) in [
+            (0usize, 0usize, format!(" {} ", form_name), 0usize),
+            (1,      1,      format!(" {} ", v1_label),  1),
+            (2,      2,      format!(" {} ", v2_label),  2),
+        ] {
+            let focused = focus == app.z_focus;
+            let b = Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(if focused { bold(CYAN) } else { dim() });
+            let b_inner = b.inner(cols[col]);
+            frame.render_widget(b, cols[col]);
+            let cursor = if focused { "_" } else { "" };
+            frame.render_widget(
+                Paragraph::new(format!("  {}{}", app.z_fields[field_idx], cursor))
+                    .style(if focused { bold(WHITE) } else { dim() }),
+                b_inner,
+            );
+        }
+    }
+
+    // "─── combine with ───"
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("─── ", dim()),
+            Span::styled("combine with", bold(YELLOW)),
+            Span::styled(" ───", dim()),
+        ])),
+        chunks[4],
+    );
+
+    // Op selector (series | parallel)
+    {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(chunks[5]);
+
+        let op_focused = app.z_focus == 3;
+        for (i, label) in ["1. Series  (+)", "2. Parallel  (∥)"].iter().enumerate() {
+            let selected = app.z_op == i;
+            let border_style = if op_focused && selected {
+                bold(CYAN)
+            } else if selected {
+                bold(GREEN)
+            } else {
+                dim()
+            };
+            let b = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style);
+            let b_inner = b.inner(cols[i]);
+            frame.render_widget(b, cols[i]);
+            frame.render_widget(
+                Paragraph::new(format!("  {}", label))
+                    .style(if selected { bold(WHITE) } else { dim() }),
+                b_inner,
+            );
+        }
+    }
+
+    // Running total
+    {
+        let b = Block::default()
+            .title(" Running Total ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(bold(YELLOW));
+        let b_inner = b.inner(chunks[6]);
+        frame.render_widget(b, chunks[6]);
+        let text = if app.z_history.is_empty() {
+            "  —".to_string()
+        } else {
+            let z = app.z_acc;
+            let sign = if z.imag >= 0.0 { '+' } else { '-' };
+            format!("  {:.4} {} j{:.4}  =  {:.4} ∠ {:.4}°",
+                z.real, sign, z.imag.abs(), z.mag, z.phase)
+        };
+        frame.render_widget(Paragraph::new(text).style(bold(WHITE)), b_inner);
+    }
+
+    // Hint
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("  Tab/↑↓", bold(CYAN)),
+            Span::styled("  navigate    ", dim()),
+            Span::styled("1/2", bold(CYAN)),
+            Span::styled("  rect/polar  or  series/parallel    ", dim()),
+            Span::styled("Enter", bold(CYAN)),
+            Span::styled("  add    ", dim()),
+            Span::styled("Esc", bold(CYAN)),
+            Span::styled("  back  ", dim()),
+        ])),
+        chunks[7],
+    );
 }

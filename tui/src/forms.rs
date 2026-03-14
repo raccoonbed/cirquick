@@ -50,6 +50,7 @@ pub enum FormResult {
     Triangle(fn(&[String]) -> ffi::Complex),
     Solver,
     MapSolver,
+    ZBuilder,
 }
 
 pub struct Form {
@@ -351,6 +352,13 @@ pub fn all_forms() -> Vec<Form> {
             title: "Max Average Power Transfer",
             steps: vec![],
             result: FormResult::MapSolver,
+        },
+
+        // 19 ─ Impedance Builder
+        Form {
+            title: "Impedance Builder",
+            steps: vec![],
+            result: FormResult::ZBuilder,
         },
     ]
 }
