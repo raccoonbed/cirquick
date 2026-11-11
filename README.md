@@ -4,6 +4,8 @@ A small AC circuit analysis toolkit I wrote to check my circuits homework. The c
 
 > **Note:** The C solver library (`circuit.c`, `analysis.c`) is written entirely by hand. The terminal UI in `tui/` was built with AI assistance in Rust, as a front end that calls the C library through FFI. The goal of this project was the C library; the UI exists to make it pleasant to use.
 
+![Cirquick terminal UI](docs/example.png)
+
 ## What it does
 
 **Phasor and complex math** (`circuit.c`)
